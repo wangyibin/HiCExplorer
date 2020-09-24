@@ -72,7 +72,10 @@ def parse_arguments(args=None):
                            'chromosomes should be plotted. This option '
                            'overrides --region and --region2.',
                            nargs='+')
-
+    parserOpt.add_argument('--chromPerRow', 
+                            default=4,
+                            type=int,
+                            help='row number of perchromosome plotting [default: %(default)s]')
     parserOpt.add_argument('--region',
                            help='Plot only this region. The format is '
                            'chr:start-end The plotted region contains '
@@ -142,6 +145,13 @@ def parse_arguments(args=None):
                            help='Scale the values of a bigwig file by the given factor.',
                            type=float,
                            default=1.0)
+    parserOpt.add_argument('--pColors', 
+                            help='bigwig colors [default: #275E8C]',
+                            nargs="*",
+                            default=None)
+    parserOpt.add_argument('--pyLabel', 
+                            help='the ylabels of bigwig',
+                            nargs="*")
     parserOpt.add_argument('--loops',
                            help='Bedgraph file to plot detected long range contacts '
                            'from hicDetectLongRangeContacts.',
@@ -193,8 +203,9 @@ def plotHeatmap(ma, chrBinBoundaries, fig, position, args, cmap, xlabel=None,
         axHeat2 = fig.add_axes(position)
 
     if args.title:
-        axHeat2.set_title(toString(args.title))
-
+        #plt.rcParams['axes.titlepad'] = 12
+        pad = 20 if args.bigwig else 6
+        axHeat2.set_title(toString(args.title), pad=pad)
     if start_pos2 is None:
         start_pos2 = start_pos
 
@@ -232,10 +243,10 @@ def plotHeatmap(ma, chrBinBoundaries, fig, position, args, cmap, xlabel=None,
         xticks = [labels, ticks]
 
         if len(labels) > 20:
-            axHeat2.set_xticklabels(labels, size=4, rotation=90)
+            axHeat2.set_xticklabels(labels, size=6, rotation=90)
             # axHeat2.set_xticklabels(labels, size=4)
 
-            axHeat2.set_yticklabels(labels, size=4)
+            axHeat2.set_yticklabels(labels, size=6)
 
         else:
             axHeat2.set_xticklabels(labels, size=8)
@@ -290,13 +301,13 @@ def plotHeatmap(ma, chrBinBoundaries, fig, position, args, cmap, xlabel=None,
                 plotBigwig(_axis, pBigwig['args'].bigwig, pChromosomeSizes=chrBinBoundaries,
                            pRegion=pBigwig['args'].region, pXticks=xticks, pFlipBigwigSign=args.flipBigwigSign,
                            pScaleFactorBigwig=args.scaleFactorBigwig, pVertical=vertical_flip[i],
-                           pValueMin=args.vMinBigwig, pValueMax=args.vMaxBigwig)
+                           pValueMin=args.vMinBigwig, pValueMax=args.vMaxBigwig, pColors=args.pColors, pyLabel=args.pyLabel)
             else:
                 log.debug('294')
 
                 plotBigwig(_axis, pBigwig['args'].bigwig, pXticks=xticks, pChromosomeSizes=chrBinBoundaries,
                            pFlipBigwigSign=args.flipBigwigSign, pScaleFactorBigwig=args.scaleFactorBigwig, pVertical=vertical_flip[i],
-                           pValueMin=args.vMinBigwig, pValueMax=args.vMaxBigwig)
+                           pValueMin=args.vMinBigwig, pValueMax=args.vMaxBigwig, pColors=args.pColors, pyLabel=args.pyLabel)
 
 
 def translate_region(region_string):
@@ -328,22 +339,24 @@ def translate_region(region_string):
     return chrom, region_start, region_end
 
 
-def plotPerChr(hic_matrix, cmap, args, pBigwig):
+def plotPerChr(hic_matrix, cmap, args, pBigwig, chrom_per_row=4):
     """
     plots each chromosome individually, one after the other
     in one row. scale bar is added at the end
     """
     from math import ceil
     chromosomes = hic_matrix.getChrNames()
-    chrom_per_row = 5
+    chrom_per_row = chrom_per_row
     num_rows = int(ceil(float(len(chromosomes)) / chrom_per_row))
     num_cols = min(chrom_per_row, len(chromosomes))
     width_ratios = [1.0] * num_cols + [0.05]
     grids = gridspec.GridSpec(num_rows, num_cols + 1,
                               width_ratios=width_ratios,
                               height_ratios=[1] * num_rows)
-
-    fig_height = 6 * num_rows
+    if pBigwig:
+        fig_height = (6 + 0.3 * len(pBigwig)) * num_rows
+    else:
+        fig_height = 6 * num_rows
     fig_width = sum((np.array(width_ratios) + 0.05) * 6)
 
     fig = plt.figure(figsize=(fig_width, fig_height), dpi=args.dpi)
@@ -510,7 +523,12 @@ def main(args=None):
     start_pos1 = None
     chrom2 = None
     start_pos2 = None
-
+    if args.bigwig:
+        if args.pColors is not None: 
+            if len(args.pColors) == 1:
+                args.pColors = args.pColors * len(args.bigwig)
+        else:
+            args.pColors = ["#BB4853", "#D33B00", "#00426D", "#EDB900", "#2E897C", "#961A6B"]
     if args.perChromosome and args.region:
         log.error('ERROR, choose from the option '
                   '--perChromosome or --region, the two '
@@ -616,7 +634,7 @@ def main(args=None):
 
     if args.perChromosome:
         log.debug('583')
-        fig = plotPerChr(ma, cmap, args, pBigwig=bigwig_info)
+        fig = plotPerChr(ma, cmap, args, pBigwig=bigwig_info, chrom_per_row=args.chromPerRow)
 
     else:
         norm = None
@@ -646,7 +664,7 @@ def main(args=None):
 
         if args.bigwig:
             # increase figure height to accommodate bigwig track
-            fig_height = 8.5
+            fig_height = 7 + len(args.bigwig) * 1.2
         else:
             fig_height = 7
         height = 4.8 / fig_height
@@ -735,7 +753,7 @@ def make_start_pos_array(ma):
 
 
 def plotBigwig(pAxis, pNameOfBigwigList, pChromosomeSizes=None, pRegion=None, pXticks=None, pFlipBigwigSign=None, pScaleFactorBigwig=None, pVertical=False,
-               pValueMin=None, pValueMax=None):
+               pValueMin=None, pValueMax=None, pColors=None, pyLabel=None):
     log.debug('plotting eigenvector')
 
     # pNameOfBigwigList is not a list, but to make room for future options
@@ -751,7 +769,7 @@ def plotBigwig(pAxis, pNameOfBigwigList, pChromosomeSizes=None, pRegion=None, pX
     #     if bigwig_file.split('.')[-1] != file_format:
     #         log.error("Eigenvector input files have different formats.")
     #         exit()
-
+    
     if file_format == "bigwig" or file_format == 'bw':
         for i, bigwigFile in enumerate(pNameOfBigwigList):
             x_values = []
@@ -846,8 +864,23 @@ def plotBigwig(pAxis, pNameOfBigwigList, pChromosomeSizes=None, pRegion=None, pX
                 if pVertical:
                     pAxis[i].fill_between(np.flip(bigwig_scores, 0), x_values, edgecolor='none')
                 else:
-                    pAxis[i].fill_between(x_values, 0, bigwig_scores, edgecolor='none')
-
+                    try:
+                        color = pColors[i]
+                    except:
+                        color = "#275E8C"
+                   
+                    pAxis[i].fill_between(x_values, bigwig_scores, edgecolor='none', facecolor=color,
+                                    where=bigwig_scores > 0.0)
+                    pAxis[i].fill_between(x_values, bigwig_scores, edgecolor='none', facecolor="#209093",
+                                    where=bigwig_scores < 0.0)
+                    try:
+                        ylabel  = pyLabel[i]
+                        ylabel = ylabel.replace("\\n", "\n")
+                    except:
+                        ylabel = ""
+                    pAxis[i].set_ylabel("{}".format(ylabel), fontsize=7, rotation=90)
+                    pAxis[i].get_yaxis().set_tick_params(labelsize=6, which='both')
+                    
 
 def plotLongRangeContacts(pAxis, pNameOfLongRangeContactsFile, pHiCMatrix, pRegion, pChromosomeOrder):
 
